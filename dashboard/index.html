@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: white;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .connection-status {
+            padding: 10px 20px;
+            border-radius: 20px;
+            display: inline-block;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        
+        .connected {
+            background: #28a745;
+        }
+        
+        .disconnected {
+            background: #dc3545;
+        }
+        
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: #16213e;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        .card h2 {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        
+        .total-clicks {
+            font-size: 4em;
+            font-weight: bold;
+            text-align: center;
+            color: #667eea;
+            margin: 20px 0;
+        }
+        
+        .click-item {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .click-item .page {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .click-item .time {
+            font-size: 0.85em;
+            color: #999;
+        }
+        
+        .page-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #0f3460;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .page-stats .page-name {
+            font-weight: bold;
+        }
+        
+        .page-stats .count {
+            background: #667eea;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+        }
+        
+        .recent-clicks-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .recent-clicks-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .recent-clicks-list::-webkit-scrollbar-track {
+            background: #0f3460;
+            border-radius: 10px;
+        }
+        
+        .recent-clicks-list::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Real-Time Click Dashboard</h1>
+        <div id="connectionStatus" class="connection-status disconnected">
+            ⚫ Disconnected
+        </div>
+    </div>
+
+    <div class="dashboard-container">
+        <div class="card">
+            <h2>Total Clicks</h2>
+            <div class="total-clicks" id="totalClicks">0</div>
+        </div>
+
+        <div class="card">
+            <h2>Clicks by Page</h2>
+            <div id="pageStats"></div>
+        </div>
+
+        <div class="card">
+            <h2>Recent Clicks</h2>
+            <div class="recent-clicks-list" id="recentClicks"></div>
+        </div>
+    </div>
+
+    <script>
+        let totalClicks = 0;
+        let pageClicks = {};
+        let recentClicksArray = [];
+        let ws;
+
+        const totalClicksDisplay = document.getElementById('totalClicks');
+        const pageStatsDiv = document.getElementById('pageStats');
+        const recentClicksDiv = document.getElementById('recentClicks');
+        const connectionStatus = document.getElementById('connectionStatus');
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8765');
+
+            ws.onopen = () => {
+                console.log('✅ Connected to WebSocket server');
+                connectionStatus.textContent = '🟢 Connected';
+                connectionStatus.className = 'connection-status connected';
+            };
+
+            ws.onmessage = (event) => {
+                const clickData = JSON.parse(event.data);
+                console.log('📨 Received click:', clickData);
+                
+                // Update total clicks
+                totalClicks++;
+                totalClicksDisplay.textContent = totalClicks;
+
+                // Update page statistics
+                const page = clickData.page || 'unknown';
+                pageClicks[page] = (pageClicks[page] || 0) + 1;
+                updatePageStats();
+
+                // Add to recent clicks
+                recentClicksArray.unshift(clickData);
+                if (recentClicksArray.length > 10) {
+                    recentClicksArray.pop();
+                }
+                updateRecentClicks();
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                connectionStatus.textContent = '⚫ Error';
+                connectionStatus.className = 'connection-status disconnected';
+            };
+
+            ws.onclose = () => {
+                console.log('❌ Disconnected from WebSocket server');
+                connectionStatus.textContent = '⚫ Disconnected';
+                connectionStatus.className = 'connection-status disconnected';
+                
+                // Reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        function updatePageStats() {
+            pageStatsDiv.innerHTML = '';
+            
+            for (const [page, count] of Object.entries(pageClicks)) {
+                const statDiv = document.createElement('div');
+                statDiv.className = 'page-stats';
+                statDiv.innerHTML = `
+                    <span class="page-name">${page}</span>
+                    <span class="count">${count}</span>
+                `;
+                pageStatsDiv.appendChild(statDiv);
+            }
+        }
+
+        function updateRecentClicks() {
+            recentClicksDiv.innerHTML = '';
+            
+            recentClicksArray.forEach(click => {
+                const clickDiv = document.createElement('div');
+                clickDiv.className = 'click-item';
+                
+                const date = new Date(click.timestamp * 1000);
+                const timeString = date.toLocaleTimeString();
+                
+                clickDiv.innerHTML = `
+                    <div class="page">Page: ${click.page || 'unknown'}</div>
+                    <div class="time">${timeString}</div>
+                `;
+                recentClicksDiv.appendChild(clickDiv);
+            });
+        }
+
+        // Connect on page load
+        connectWebSocket();
+    </script>
+</body>
+</html>
